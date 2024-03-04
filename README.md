@@ -6,6 +6,7 @@ TODO List:
 * [x] Show timer button
 * [ ] Configure user's storage
 * [ ] Track user's work cycle
-* [ ] Timers
+* [x] Timers
+* [ ] Timer callback
 * [ ] Save user's states and timers
 * [ ] Settings
