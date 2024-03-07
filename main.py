@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import logging
 from aiogram import Bot, Dispatcher, F, types, filters, methods
+from aiogram.fsm.storage.redis import RedisStorage as RedisStateStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
@@ -10,9 +11,13 @@ from dotenv import dotenv_values
 from utils import timerstorage
 from utils.timerstorage import TimerStorage
 
+from core import AppState
+from utils import timerwatcher
+
 ENV: dict = dotenv_values()
 token: str = ENV['token']
-dp = Dispatcher()
+REDIS_STATE_STORAGE_STRING = "redis://127.0.0.1?db=1"
+dp = Dispatcher(storage=RedisStateStorage.from_url(REDIS_STATE_STORAGE_STRING))
 
 ##############################################
 #    some resouses, TODO: move some in other place
@@ -39,16 +44,9 @@ class Keyboard:
 
     menu = ReplyKeyboardBuilder() \
         .button(text='🍅 Start Pomodoro 🍅') \
-        .button(text='🤏 Take a Short Break 🤏') \
+        .button(text='🍹 Take a Short Break 🍹') \
         .button(text='🏝️ Take a Long Break 🏝️') \
         .adjust(1, 2)
-
-
-class AppState(StatesGroup):
-    Menu = State()
-    Work = State()
-    ShortBreak = State()
-    LongBreak = State()
 
 
 async def set_timer(next_state: str | State | None, user_id: int) -> bool:
@@ -121,7 +119,7 @@ async def start_pomodoro(msg: types.Message, bot: Bot, state: FSMContext):
     ))
 
 
-@dp.message(F.text == '🤏 Take a Short Break 🤏')
+@dp.message(F.text == '🍹 Take a Short Break 🍹')
 async def start_short_break(msg: types.Message, bot: Bot, state: FSMContext):
     """
     Menu -> ShortBreak state handler
@@ -137,7 +135,7 @@ async def start_short_break(msg: types.Message, bot: Bot, state: FSMContext):
     await set_timer(AppState.ShortBreak, msg.from_user.id)
     await bot(methods.SendMessage(
         chat_id=msg.from_user.id,
-        text="🤏 Short Break Started! 🤏",
+        text="🍹 Short Break Started! 🍹",
         reply_markup=Keyboard.pause_inline.as_markup(),
     ))
 
@@ -201,7 +199,7 @@ async def continue_timer_callback(cb: types.CallbackQuery, bot: Bot):
 async def check_timer_callback(cb: types.CallbackQuery, bot: Bot):
     await bot(methods.AnswerCallbackQuery(
         callback_query_id=cb.id,
-        text=f"{await check_timer(cb.from_user.id)} minutes left",  # TODO: get timer value
+        text=f"{await check_timer(cb.from_user.id)} left",
     ))
     ...
 
@@ -221,11 +219,16 @@ async def stop_timer_callback(cb: types.CallbackQuery, bot: Bot, state: FSMConte
 
 ########################################################################################################################
 
+
 async def main():
     logging.basicConfig(level=logging.DEBUG)
     bot = Bot(token)
-    dp["TimerStorage"]: TimerStorage = timerstorage.RedisTimerStorage("redis:///127.0.0.1")
-    await dp.start_polling(bot)
+    dp["TimerStorage"]: TimerStorage = timerstorage.RedisTimerStorage("redis:///127.0.0.1?db=2")
+    async with asyncio.TaskGroup() as tg:
+        bot_task = tg.create_task(dp.start_polling(bot))
+        watch_timers_task = tg.create_task(
+            timerwatcher.rediswatcher(bot, dp)
+        )
 
 
 if __name__ == "__main__":

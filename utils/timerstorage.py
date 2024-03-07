@@ -26,6 +26,7 @@ class TimerStorage(ABC):
 
 
 class RedisTimerStorage(TimerStorage):
+    # TODO: use async Redis
     def __init__(self, connection_string):
         super().__init__(connection_string)
         self.redis: Redis = from_url(self.connection_string)
