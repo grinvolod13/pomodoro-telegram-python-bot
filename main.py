@@ -4,15 +4,14 @@ import logging
 from aiogram import Bot, Dispatcher, F, types, filters, methods
 from aiogram.fsm.storage.redis import RedisStorage as RedisStateStorage
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.fsm.state import State
 from dotenv import dotenv_values
 
-from utils import timerstorage
-from utils.timerstorage import TimerStorage
 
 from core import AppState
 from utils import timerwatcher
+from utils.timerstorage import TimerStorage, RedisTimerStorage
+from keyboards import Keyboard
 
 ENV: dict = dotenv_values()
 TOKEN: str = ENV['TOKEN']
@@ -27,29 +26,6 @@ You can check out source code here:
 https://github.com/grinvolod13/pomodoro-telegram-python-bot"""
 
 
-class Keyboard:
-    """Class to store keyboards for bot.
-    """
-
-    pause_inline = InlineKeyboardBuilder() \
-        .button(text='⏸️ Pause', callback_data='pause') \
-        .button(text='⏹️ Stop', callback_data='stop') \
-        .button(text='⏱️ Check time left', callback_data='check') \
-        .adjust(2, 1)
-
-    continue_inline = InlineKeyboardBuilder() \
-        .button(text='▶️ Continue', callback_data='continue') \
-        .button(text='⏹️ Stop', callback_data='stop') \
-        .button(text='⏱️ Check time left', callback_data='check') \
-        .adjust(2, 1)
-
-    menu = ReplyKeyboardBuilder() \
-        .button(text='🍅 Start Pomodoro 🍅') \
-        .button(text='🍹 Take a Short Break 🍹') \
-        .button(text='🏝️ Take a Long Break 🏝️') \
-        .adjust(1, 2)
-
-
 async def set_timer(next_state: str | State | None, user_id: int) -> bool:
     # TODO: Set callback
     pc: TimerStorage = dp["TimerStorage"]
@@ -61,28 +37,28 @@ async def set_timer(next_state: str | State | None, user_id: int) -> bool:
     elif next_state == AppState.LongBreak:
         time = 15
 
-    pc.set_timer(user_id, datetime.timedelta(seconds=time))
+    await pc.set_timer(user_id, datetime.timedelta(seconds=time))
     return False
 
 
 async def pause_timer(user_id: int):
     pc: TimerStorage = dp["TimerStorage"]
-    pc.pause_timer(user_id)
+    await pc.pause_timer(user_id)
 
 
 async def continue_timer(user_id: int):
     pc: TimerStorage = dp["TimerStorage"]
-    pc.continue_timer(user_id)
+    await pc.continue_timer(user_id)
 
 
 async def stop_timer(user_id: int):
     pc: TimerStorage = dp["TimerStorage"]
-    pc.stop_timer(user_id)
+    await pc.stop_timer(user_id)
 
 
 async def check_timer(user_id: int):
     pc: TimerStorage = dp["TimerStorage"]
-    return pc.check_timer(user_id)
+    return await pc.check_timer(user_id)
 
 
 ########################################################################################################################
@@ -166,7 +142,10 @@ async def start_long_break(msg: types.Message, bot: Bot, state: FSMContext):
 # inline events while timer active
 
 @dp.callback_query(F.data == 'pause')
-async def pause_timer_callback(cb: types.CallbackQuery, bot: Bot):
+async def pause_timer_callback(cb: types.CallbackQuery, bot: Bot, state: FSMContext):
+    if (await state.get_state()) == AppState.Menu:
+        await bot(methods.AnswerCallbackQuery(callback_query_id=cb.id, text=None))
+        return
     await pause_timer(cb.from_user.id)
     await bot(methods.AnswerCallbackQuery(
         callback_query_id=cb.id,
@@ -181,7 +160,11 @@ async def pause_timer_callback(cb: types.CallbackQuery, bot: Bot):
 
 
 @dp.callback_query(F.data == 'continue')
-async def continue_timer_callback(cb: types.CallbackQuery, bot: Bot):
+async def continue_timer_callback(cb: types.CallbackQuery, bot: Bot, state: FSMContext):
+    if (await state.get_state()) == AppState.Menu:
+        await bot(methods.AnswerCallbackQuery(callback_query_id=cb.id, text=None))
+        return
+
     await continue_timer(cb.from_user.id)
     await bot(methods.AnswerCallbackQuery(
         callback_query_id=cb.id,
@@ -193,7 +176,6 @@ async def continue_timer_callback(cb: types.CallbackQuery, bot: Bot):
         message_id=cb.message.message_id,
         reply_markup=Keyboard.pause_inline.as_markup(),
     ))
-    ...
 
 
 @dp.callback_query(F.data == 'check')
@@ -202,34 +184,38 @@ async def check_timer_callback(cb: types.CallbackQuery, bot: Bot):
         callback_query_id=cb.id,
         text=f"{await check_timer(cb.from_user.id)} left",
     ))
-    ...
 
 
 @dp.callback_query(F.data == 'stop')
 async def stop_timer_callback(cb: types.CallbackQuery, bot: Bot, state: FSMContext):
+    await bot(methods.AnswerCallbackQuery(callback_query_id=cb.id, text=None))
+    if (await state.get_state()) == AppState.Menu:
+        return
     await stop_timer(cb.from_user.id)
     await state.set_state(AppState.Menu)
 
     await bot(methods.SendMessage(
         chat_id=cb.from_user.id,
         text="Stopped.",
-        reply_to_message_id=cb.message.message_id
+        reply_to_message_id=cb.message.message_id,
     ))
-    ...
 
-
+########################################################################################################################
 ########################################################################################################################
 
 
 async def main():
     logging.basicConfig(level=logging.DEBUG)
     bot = Bot(TOKEN)
-    dp["TimerStorage"]: TimerStorage = timerstorage.RedisTimerStorage(REDIS_TIMER_STORAGE_STRING)
-    async with asyncio.TaskGroup() as tg:
-        bot_task = tg.create_task(dp.start_polling(bot))
-        watch_timers_task = tg.create_task(
-            timerwatcher.rediswatcher(bot, dp, REDIS_TIMER_STORAGE_STRING)
-        )
+    dp["TimerStorage"]: TimerStorage = RedisTimerStorage(REDIS_TIMER_STORAGE_STRING)
+    try:
+        async with asyncio.TaskGroup() as tg:
+            bot_task = tg.create_task(dp.start_polling(bot))
+            watch_timers_task = tg.create_task(
+                timerwatcher.rediswatcher(bot, dp, REDIS_TIMER_STORAGE_STRING)
+            )
+    finally:
+        await dp["TimerStorage"].aclose()
 
 
 if __name__ == "__main__":

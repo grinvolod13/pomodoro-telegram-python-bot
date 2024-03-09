@@ -12,6 +12,8 @@ TODO List:
 * [ ] Track user's work cycle
 * [x] Timers
 * [x] Timer callback
-* [ ] Custom message on timer end
+* [ ] Custom message on timer end (?)
 * [x] Save user's states and timers
+* [ ] Pass redis connection to middleware
+* [ ] Optimize coroutines for concurrent operations if needed
 * [ ] Settings
