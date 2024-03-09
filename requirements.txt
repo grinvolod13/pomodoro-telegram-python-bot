@@ -1,4 +1,3 @@
 python-dotenv~=1.0.1
 aiogram~=3.4.1
-rq
 redis~=5.0.2

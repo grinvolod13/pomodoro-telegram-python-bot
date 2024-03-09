@@ -15,13 +15,14 @@ from core import AppState
 from utils import timerwatcher
 
 ENV: dict = dotenv_values()
-token: str = ENV['token']
-REDIS_STATE_STORAGE_STRING = "redis://127.0.0.1?db=1"
-dp = Dispatcher(storage=RedisStateStorage.from_url(REDIS_STATE_STORAGE_STRING))
+TOKEN: str = ENV['TOKEN']
+REDIS_STATE_STORAGE_STRING: str = ENV["REDIS_STATE_STORAGE_STRING"]
+REDIS_TIMER_STORAGE_STRING: str = ENV["REDIS_TIMER_STORAGE_STRING"]
 
+dp = Dispatcher(storage=RedisStateStorage.from_url(REDIS_STATE_STORAGE_STRING))
 ##############################################
 #    some resouses, TODO: move some in other place
-START_TEXT = """Hello, this is Pomodoro bot. Opening soon!
+START_TEXT = """Hello, this is Pomodoro bot!
 You can check out source code here:
 https://github.com/grinvolod13/pomodoro-telegram-python-bot"""
 
@@ -222,12 +223,12 @@ async def stop_timer_callback(cb: types.CallbackQuery, bot: Bot, state: FSMConte
 
 async def main():
     logging.basicConfig(level=logging.DEBUG)
-    bot = Bot(token)
-    dp["TimerStorage"]: TimerStorage = timerstorage.RedisTimerStorage("redis:///127.0.0.1?db=2")
+    bot = Bot(TOKEN)
+    dp["TimerStorage"]: TimerStorage = timerstorage.RedisTimerStorage(REDIS_TIMER_STORAGE_STRING)
     async with asyncio.TaskGroup() as tg:
         bot_task = tg.create_task(dp.start_polling(bot))
         watch_timers_task = tg.create_task(
-            timerwatcher.rediswatcher(bot, dp)
+            timerwatcher.rediswatcher(bot, dp, REDIS_TIMER_STORAGE_STRING)
         )
 
 
